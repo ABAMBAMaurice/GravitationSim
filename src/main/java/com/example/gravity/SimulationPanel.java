@@ -63,6 +63,8 @@ public final class SimulationPanel extends JPanel {
     private static final float MIN_RADIUS_FOR_ROTATION_MARKER = 6f;
     private static final float MIN_RADIUS_FOR_TEXTURE = 8f;
     private static final int MAX_TEXTURE_RENDER_SIZE = 260;
+    private static final int GIZMO_RADIUS = 34;
+    private static final int GIZMO_MARGIN = 60;
     private static final int STAR_COUNT = 180;
     private static final Color PHOTON_COLOR = new Color(255, 255, 240);
     // Presets are tuned in real kilometres; this keeps them readable on load
@@ -102,9 +104,21 @@ public final class SimulationPanel extends JPanel {
     private long lastTickNanos = -1;
     private double simulationSpeed = 1.0;
     private double spawnMass = 2000;
+    // Default: ~5 solar masses, radius close to its own Schwarzschild radius
+    // (2GM/c^2 ~=
+    // 14.8km for this mass) — a physically-plausible starting point the user can
+    // then freely
+    // detune away from (this sim has no relativity, so nothing enforces that
+    // relationship).
+    private double blackHoleMassKg = 1.0e31;
+    private double blackHoleRadiusKm = 15.0;
     private double spawnRadius = 2.0;
     private boolean paused = false;
-    private boolean showTrails = true;
+    // No longer a rendering gate itself (trail visibility is per-body, see
+    // Body.showTrail) —
+    // this is now just the default applied to bodies added via
+    // drag-spawn/preset-insert.
+    private boolean showTrails = false;
     private boolean showAllNames = false;
     private boolean spawnAsPhoton = false;
     private int trailLength = 0;
@@ -145,6 +159,15 @@ public final class SimulationPanel extends JPanel {
     private Point panStartScreen;
     private Vector3D panStartCameraCenter;
     private boolean panningCamera;
+
+    // Two-step preset insertion: click a "Corps predefinis" button to arm
+    // pendingSpawn, then
+    // click (rest) or drag (with velocity) in the view to place it.
+    // assigningVelocity arms a
+    // similar drag gesture that sets an already-placed selected body's velocity
+    // afterward.
+    private PresetBodyKind pendingSpawn;
+    private boolean assigningVelocity;
 
     private final Timer timer;
 
@@ -220,6 +243,17 @@ public final class SimulationPanel extends JPanel {
                     return;
                 }
                 Point p = e.getPoint();
+                if (assigningVelocity && selectedBody != null) {
+                    // The drag can start anywhere — it's a pure direction+magnitude input
+                    // (like a joystick), always anchored at the body's own position, not
+                    // wherever the cursor happens to be.
+                    dragStartWorld = selectedBody.position;
+                    dragStartScreen = p;
+                    dragCurrentScreen = p;
+                    dragging = true;
+                    pressedOnExistingBody = false;
+                    return;
+                }
                 if (e.isShiftDown()) {
                     secondarySelectedBody = hitTestBody(p);
                     repaint();
@@ -246,6 +280,17 @@ public final class SimulationPanel extends JPanel {
                     panningCamera = false;
                     return;
                 }
+                if (assigningVelocity) {
+                    assigningVelocity = false;
+                    dragging = false;
+                    if (selectedBody != null) {
+                        Vector3D releaseWorld = screenToWorldOnPlane(e.getPoint(), dragStartWorld);
+                        selectedBody.velocity = releaseWorld.subtract(dragStartWorld).scale(DRAG_VELOCITY_SCALE);
+                        initialEnergy = simulation.totalEnergy();
+                    }
+                    repaint();
+                    return;
+                }
                 dragging = false;
                 if (pressedOnExistingBody) {
                     pressedOnExistingBody = false;
@@ -253,7 +298,24 @@ public final class SimulationPanel extends JPanel {
                     return;
                 }
                 Point releaseScreen = e.getPoint();
-                if (releaseScreen.distance(dragStartScreen) < 5) {
+                boolean isClick = releaseScreen.distance(dragStartScreen) < 5;
+                if (pendingSpawn != null) {
+                    // Preset bodies can be placed at rest (a plain click) as well as with an
+                    // initial velocity (a drag) — the click case is the "insert without
+                    // velocity, set direction/speed afterward" workflow.
+                    Vector3D releaseWorld = screenToWorldOnPlane(releaseScreen, dragStartWorld);
+                    Vector3D velocity = isClick ? Vector3D.ZERO
+                            : releaseWorld.subtract(dragStartWorld).scale(DRAG_VELOCITY_SCALE);
+                    Body placed = pendingSpawn.create(dragStartWorld, velocity);
+                    placed.showTrail = showTrails;
+                    simulation.addBody(placed);
+                    initialEnergy = simulation.totalEnergy();
+                    setSelectedBody(placed);
+                    pendingSpawn = null;
+                    repaint();
+                    return;
+                }
+                if (isClick) {
                     repaint();
                     return;
                 }
@@ -273,6 +335,7 @@ public final class SimulationPanel extends JPanel {
                     body.rotationPeriodSeconds = DEFAULT_SPAWN_ROTATION_PERIOD_SECONDS;
                     body.surfaceSeed = ThreadLocalRandom.current().nextLong();
                 }
+                body.showTrail = showTrails;
                 simulation.addBody(body);
                 initialEnergy = simulation.totalEnergy();
                 repaint();
@@ -355,6 +418,61 @@ public final class SimulationPanel extends JPanel {
 
     public void setSpawnAsPhoton(boolean photon) {
         this.spawnAsPhoton = photon;
+    }
+
+    /**
+     * Arms the next click/drag in the view to place this preset body (see
+     * mousePressed/mouseReleased).
+     */
+    public void armPresetSpawn(PresetBodyKind kind) {
+        this.pendingSpawn = kind;
+        repaint();
+    }
+
+    /**
+     * Arms the next drag in the view to set the currently selected body's
+     * direction/speed. No-op if nothing is selected.
+     */
+    public void armVelocityAssignment() {
+        if (selectedBody != null) {
+            this.assigningVelocity = true;
+            repaint();
+        }
+    }
+
+    public void setBlackHoleMassKg(double massKg) {
+        this.blackHoleMassKg = massKg;
+    }
+
+    public double getBlackHoleMassKg() {
+        return blackHoleMassKg;
+    }
+
+    public void setBlackHoleRadiusKm(double radiusKm) {
+        this.blackHoleRadiusKm = Math.max(1e-6, radiusKm);
+    }
+
+    public double getBlackHoleRadiusKm() {
+        return blackHoleRadiusKm;
+    }
+
+    /**
+     * kg/m^3 — a live readout next to the mass/radius sliders, not an independently
+     * settable value.
+     */
+    public double getBlackHoleDensityKgPerM3() {
+        double radiusM = blackHoleRadiusKm * 1000.0;
+        double volumeM3 = (4.0 / 3.0) * Math.PI * radiusM * radiusM * radiusM;
+        return volumeM3 > 0 ? blackHoleMassKg / volumeM3 : 0;
+    }
+
+    /**
+     * Arms placement of a black hole built from the current mass/radius sliders
+     * (see drawBlackHole for its look).
+     */
+    public void armBlackHoleSpawn() {
+        this.pendingSpawn = new PresetBodyKind("Trou noir", blackHoleMassKg, blackHoleRadiusKm, Color.BLACK, 0);
+        repaint();
     }
 
     public double getSimulationSpeed() {
@@ -446,6 +564,13 @@ public final class SimulationPanel extends JPanel {
         }
     }
 
+    public void setSelectedBodyShowTrail(boolean show) {
+        if (selectedBody != null) {
+            selectedBody.showTrail = show;
+            repaint();
+        }
+    }
+
     /**
      * Sets the selected body's speed while keeping its current direction of travel.
      */
@@ -461,6 +586,13 @@ public final class SimulationPanel extends JPanel {
 
     public void loadBinaryPreset() {
         currentPresetLoader = this::loadBinaryPreset;
+        // A toy-scale value, not Units.G_INTERNAL_REAL: at this preset's toy
+        // masses/distances
+        // (thousands of mass-units, tens of km), the real gravitational constant
+        // (~2e-9)
+        // produces negligible acceleration — the orbit would be effectively frozen.
+        // Tuned so
+        // the pair completes a full circular orbit in ~3.5s at simulationSpeed=1.
         double g = Units.G_INTERNAL_REAL;
         simulation.setG(g);
         simulation.loadBodies(Presets.binaryBodies(g));
@@ -473,6 +605,10 @@ public final class SimulationPanel extends JPanel {
 
     public void loadThreeBodyPreset() {
         currentPresetLoader = this::loadThreeBodyPreset;
+        // Toy-scale, same reasoning as loadBinaryPreset — real G would leave the
+        // triangle
+        // essentially frozen. Tuned for a ~3.5s period, matching the binary preset's
+        // pace.
         double g = Units.G_INTERNAL_REAL;
         simulation.setG(g);
         simulation.loadBodies(Presets.threeBodyBodies(g));
@@ -551,6 +687,8 @@ public final class SimulationPanel extends JPanel {
      */
     public void loadGravityCloudPreset() {
         currentPresetLoader = this::loadGravityCloudPreset;
+        // Toy-scale, same reasoning as loadBinaryPreset — real G would leave the cloud
+        // essentially static instead of mixing/migrating as the class doc describes.
         double g = Units.G_INTERNAL_REAL;
         simulation.setG(g);
         simulation.loadBodies(Presets.cloudBodies(g));
@@ -645,6 +783,15 @@ public final class SimulationPanel extends JPanel {
             double substepDt = frameDt / substeps;
             for (int i = 0; i < substeps; i++) {
                 simulation.step(substepDt);
+            }
+            // Recorded once per frame, not per substep: with PHYSICS_SUBSTEPS_PER_FRAME as
+            // high as 256 at extreme speeds, recording every substep would let the fixed
+            // 500-point trail cap represent well under a second of real playback — visually
+            // indistinguishable from no trail at all. One point per frame ties trail
+            // history
+            // to real time (500 points spans ~8s at 60fps) regardless of substep count.
+            for (Body b : simulation.getBodies()) {
+                b.recordTrailPoint();
             }
             if (selectedBody != null && !simulation.getBodies().contains(selectedBody)) {
                 setSelectedBody(null);
@@ -762,8 +909,8 @@ public final class SimulationPanel extends JPanel {
             projections.put(body, project(body.position));
         }
 
-        if (showTrails) {
-            for (Body body : bodies) {
+        for (Body body : bodies) {
+            if (body.showTrail) {
                 drawTrail(g2, body);
             }
         }
@@ -783,6 +930,7 @@ public final class SimulationPanel extends JPanel {
         drawDistanceMeasurement(g2);
 
         drawHud(g2);
+        drawAxisGizmo(g2);
     }
 
     private void drawBackground(Graphics2D g2) {
@@ -831,20 +979,24 @@ public final class SimulationPanel extends JPanel {
         float radius = (float) apparentRadius(body, proj);
         Point2D.Float center = new Point2D.Float((float) proj.screenX(), (float) proj.screenY());
 
-        float haloRadius = radius * 2.2f;
-        g2.setPaint(new RadialGradientPaint(center, haloRadius, new float[] { 0f, 1f },
-                new Color[] { Palette.withAlpha(body.color, 100), Palette.withAlpha(body.color, 0) }));
-        g2.fill(new Ellipse2D.Double(center.x - haloRadius, center.y - haloRadius, haloRadius * 2, haloRadius * 2));
-
-        boolean textured = radius >= MIN_RADIUS_FOR_TEXTURE
-                && (body.name.equals("Terre") || body.name.equals("Lune"));
-        if (textured) {
-            drawTexturedSphere(g2, body, center, radius);
+        if (body.name.equals("Trou noir")) {
+            drawBlackHole(g2, center, radius);
         } else {
-            g2.setPaint(new RadialGradientPaint(center, radius, new float[] { 0f, 1f },
-                    new Color[] { brighten(body.color), body.color }));
-            g2.fill(new Ellipse2D.Double(center.x - radius, center.y - radius, radius * 2, radius * 2));
-            drawRotationMarkers(g2, body, center, radius);
+            float haloRadius = radius * 2.2f;
+            g2.setPaint(new RadialGradientPaint(center, haloRadius, new float[] { 0f, 1f },
+                    new Color[] { Palette.withAlpha(body.color, 100), Palette.withAlpha(body.color, 0) }));
+            g2.fill(new Ellipse2D.Double(center.x - haloRadius, center.y - haloRadius, haloRadius * 2, haloRadius * 2));
+
+            boolean textured = radius >= MIN_RADIUS_FOR_TEXTURE
+                    && (body.name.equals("Terre") || body.name.equals("Lune"));
+            if (textured) {
+                drawTexturedSphere(g2, body, center, radius);
+            } else {
+                g2.setPaint(new RadialGradientPaint(center, radius, new float[] { 0f, 1f },
+                        new Color[] { brighten(body.color), body.color }));
+                g2.fill(new Ellipse2D.Double(center.x - radius, center.y - radius, radius * 2, radius * 2));
+                drawRotationMarkers(g2, body, center, radius);
+            }
         }
 
         if (body == selectedBody) {
@@ -877,6 +1029,30 @@ public final class SimulationPanel extends JPanel {
      * behind the
      * sphere as it spins, rather than being a flat screen-space decoration.
      */
+    /**
+     * A solid black event horizon with a bright, warm accretion-glow rim — distinct
+     * from the
+     * normal radial-gradient sphere look, since a black hole with body.color =
+     * black would
+     * otherwise just render as a nearly-invisible dark blob against the starfield.
+     */
+    private void drawBlackHole(Graphics2D g2, Point2D.Float center, float radius) {
+        float haloRadius = radius * 3.2f;
+        Color glow = new Color(255, 170, 70);
+        g2.setPaint(new RadialGradientPaint(center, haloRadius, new float[] { 0f, 0.4f, 1f },
+                new Color[] { Palette.withAlpha(glow, 110), Palette.withAlpha(glow, 45), Palette.withAlpha(glow, 0) }));
+        g2.fill(new Ellipse2D.Double(center.x - haloRadius, center.y - haloRadius, haloRadius * 2, haloRadius * 2));
+
+        g2.setColor(Color.BLACK);
+        g2.fill(new Ellipse2D.Double(center.x - radius, center.y - radius, radius * 2, radius * 2));
+
+        float strokeWidth = Math.max(1.2f, radius * 0.08f);
+        float rimRadius = radius - strokeWidth / 2;
+        g2.setColor(Palette.withAlpha(glow, 230));
+        g2.setStroke(new BasicStroke(strokeWidth));
+        g2.draw(new Ellipse2D.Double(center.x - rimRadius, center.y - rimRadius, rimRadius * 2, rimRadius * 2));
+    }
+
     /**
      * A handful of small surface blotches at seeded (stable per body)
      * latitude/longitude
@@ -983,7 +1159,25 @@ public final class SimulationPanel extends JPanel {
 
         BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         image.setRGB(0, 0, size, size, pixels, 0, size);
-        g2.drawImage(image, Math.round(center.x - size / 2f), Math.round(center.y - size / 2f), null);
+
+        // Drawn at the body's true apparent diameter, not at the (possibly capped)
+        // buffer
+        // size: at typical zoom levels size == radius*2 already and this is a 1:1 draw,
+        // but
+        // once radius exceeds MAX_TEXTURE_RENDER_SIZE/2 the buffer stays capped for
+        // performance while the display size keeps growing — stretching it here (with
+        // bilinear smoothing) keeps the texture's apparent size correct at any zoom,
+        // instead
+        // of it visibly stopping growing while the halo/selection ring around it kept
+        // scaling.
+        Object previousInterpolation = g2.getRenderingHint(RenderingHints.KEY_INTERPOLATION);
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        int displayDiameter = Math.round(radius * 2);
+        g2.drawImage(image, Math.round(center.x - radius), Math.round(center.y - radius),
+                displayDiameter, displayDiameter, null);
+        if (previousInterpolation != null) {
+            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, previousInterpolation);
+        }
     }
 
     /**
@@ -1104,6 +1298,12 @@ public final class SimulationPanel extends JPanel {
         if (followedBody != null) {
             lines.add("Camera : suivi de " + followedBody.name);
         }
+        if (pendingSpawn != null) {
+            lines.add("Pret a inserer : " + pendingSpawn.name + " (clic = pose immobile, glisser = pose + vitesse)");
+        }
+        if (assigningVelocity && selectedBody != null) {
+            lines.add("Glisser pour definir la direction et la vitesse de " + selectedBody.name);
+        }
 
         String hint = "Clic: selectionner (suivi camera) | Glisser: deplacer/lancer | Shift-clic: 2e corps | "
                 + "Clic droit: orbite | Ctrl+clic gauche: panoramique (relache le suivi) | C: recentrer | Shift+C: reprendre/relacher le suivi";
@@ -1129,5 +1329,73 @@ public final class SimulationPanel extends JPanel {
 
         g2.setColor(Palette.TEXT_MUTED);
         g2.drawString(hint, 14 + padding, y);
+    }
+
+    private record GizmoAxis(String label, Vector3D direction, Color color) {
+    }
+
+    private static final GizmoAxis[] GIZMO_AXES = {
+            new GizmoAxis("X", new Vector3D(1, 0, 0), new Color(230, 90, 90)),
+            new GizmoAxis("Y", new Vector3D(0, 1, 0), new Color(110, 210, 110)),
+            new GizmoAxis("Z", new Vector3D(0, 0, 1), new Color(100, 150, 240)),
+    };
+
+    /**
+     * A small fixed-size orientation gizmo in the bottom-left corner: the world
+     * X/Y/Z axes
+     * projected through the camera's current orthonormal basis (no perspective
+     * divide — a
+     * pure orientation indicator, not a scene object), updating live as the camera
+     * orbits.
+     * Positive directions are bright, labeled dots; negative directions are dim,
+     * unlabeled
+     * hollow dots — the standard convention in 3D tools (Blender, CAD, etc.).
+     */
+    private void drawAxisGizmo(Graphics2D g2) {
+        double cx = GIZMO_MARGIN;
+        double cy = getHeight() - GIZMO_MARGIN;
+
+        record Arm(double screenX, double screenY, double depth, Color color, String label, boolean positive) {
+        }
+        List<Arm> arms = new ArrayList<>();
+        for (GizmoAxis axis : GIZMO_AXES) {
+            for (int sign = 1; sign >= -1; sign -= 2) {
+                Vector3D dir = axis.direction().scale(sign);
+                double camX = dir.dot(camRight);
+                double camY = dir.dot(camUp);
+                double camZ = dir.dot(camForward);
+                double screenX = cx + camX * GIZMO_RADIUS;
+                double screenY = cy - camY * GIZMO_RADIUS;
+                arms.add(new Arm(screenX, screenY, camZ, axis.color(), axis.label(), sign > 0));
+            }
+        }
+        // Painter's algorithm: farthest arm first so nearer ones draw on top where they
+        // overlap.
+        arms.sort((a, b) -> Double.compare(b.depth(), a.depth()));
+
+        double backdropRadius = GIZMO_RADIUS + 16;
+        g2.setColor(Palette.withAlpha(Palette.PANEL_BG, 160));
+        g2.fill(new Ellipse2D.Double(cx - backdropRadius, cy - backdropRadius, backdropRadius * 2, backdropRadius * 2));
+
+        g2.setStroke(new BasicStroke(2f));
+        for (Arm arm : arms) {
+            g2.setColor(Palette.withAlpha(arm.color(), arm.positive() ? 255 : 110));
+            g2.draw(new Line2D.Double(cx, cy, arm.screenX(), arm.screenY()));
+            if (arm.positive()) {
+                float dotRadius = 6f;
+                g2.fill(new Ellipse2D.Double(arm.screenX() - dotRadius, arm.screenY() - dotRadius,
+                        dotRadius * 2, dotRadius * 2));
+                g2.setColor(Color.WHITE);
+                g2.drawString(arm.label(), (float) arm.screenX() - 4, (float) arm.screenY() + 4);
+            } else {
+                float dotRadius = 4f;
+                g2.setColor(Palette.SPACE_TOP);
+                g2.fill(new Ellipse2D.Double(arm.screenX() - dotRadius, arm.screenY() - dotRadius,
+                        dotRadius * 2, dotRadius * 2));
+                g2.setColor(Palette.withAlpha(arm.color(), 150));
+                g2.draw(new Ellipse2D.Double(arm.screenX() - dotRadius, arm.screenY() - dotRadius,
+                        dotRadius * 2, dotRadius * 2));
+            }
+        }
     }
 }

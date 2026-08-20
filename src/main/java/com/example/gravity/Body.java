@@ -22,6 +22,8 @@ public final class Body {
     public double rotationPeriodSeconds;
     /** Seeds a small deterministic set of surface markings (see SimulationPanel), stable frame to frame. */
     public long surfaceSeed;
+    /** Per-body trail visibility, set manually via the selected-body panel. Off by default. */
+    public boolean showTrail = false;
 
     private final Deque<Vector3D> trail = new ArrayDeque<>();
 

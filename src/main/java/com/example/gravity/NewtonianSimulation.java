@@ -108,7 +108,6 @@ public final class NewtonianSimulation {
         for (int i = 0; i < bodies.size(); i++) {
             Body b = bodies.get(i);
             b.velocity = b.velocity.add(previousAcceleration[i].add(b.acceleration).scale(0.5 * dt));
-            b.recordTrailPoint();
             if (b.rotationPeriodSeconds != 0) {
                 double angularSpeed = 2 * Math.PI / b.rotationPeriodSeconds;
                 b.rotationAngle = (b.rotationAngle + angularSpeed * dt * rotationSpeedMultiplier) % (2 * Math.PI);
