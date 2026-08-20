@@ -13,13 +13,19 @@ public final class Body {
 
     public double mass;
     public double radius;
-    public Vector2D position;
-    public Vector2D velocity;
-    public Vector2D acceleration = Vector2D.ZERO;
+    public Vector3D position;
+    public Vector3D velocity;
+    public Vector3D acceleration = Vector3D.ZERO;
 
-    private final Deque<Vector2D> trail = new ArrayDeque<>();
+    /** Axial spin, purely visual (doesn't feed back into gravity). 0 = no rotation. Negative period = retrograde. */
+    public double rotationAngle;
+    public double rotationPeriodSeconds;
+    /** Seeds a small deterministic set of surface markings (see SimulationPanel), stable frame to frame. */
+    public long surfaceSeed;
 
-    public Body(String name, double mass, double radius, Color color, Vector2D position, Vector2D velocity) {
+    private final Deque<Vector3D> trail = new ArrayDeque<>();
+
+    public Body(String name, double mass, double radius, Color color, Vector3D position, Vector3D velocity) {
         this.name = name;
         this.mass = mass;
         this.radius = radius;
@@ -35,7 +41,7 @@ public final class Body {
         }
     }
 
-    public Deque<Vector2D> getTrail() {
+    public Deque<Vector3D> getTrail() {
         return trail;
     }
 

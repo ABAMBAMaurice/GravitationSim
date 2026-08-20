@@ -65,20 +65,23 @@ public final class ControlPanel extends JScrollPane {
         root.add(Box.createVerticalStrut(20));
 
         LogSlider gSlider = new LogSlider("Constante G", 1e-10, 100000, simulation.getG(), simulation::setG);
-        LogSlider speedSlider = new LogSlider("Vitesse simulation", 1e-6, 5_000_000,
+        LogSlider speedSlider = new LogSlider("Vitesse simulation", 1e-6, 2_000_000_000,
                 simulation.getSimulationSpeed(), simulation::setSimulationSpeed);
+        LogSlider rotationSpeedSlider = new LogSlider("Vitesse de rotation (astres)", 0.001, 10_000,
+                simulation.getRotationSpeedMultiplier(), simulation::setRotationSpeedMultiplier);
 
         root.add(sectionCard("Parametres",
                 gSlider,
                 massSlider("Masse (nouveau)", 1, 1.0e21, 2000, simulation::setSpawnMass),
                 new LogSlider("Taille (nouveau, km)", 0.1, 2_000_000, 2.0, simulation::setSpawnRadius),
                 speedSlider,
+                rotationSpeedSlider,
                 new LinearSlider("Adoucissement gravitationnel", 0, 40, (int) simulation.getSoftening(),
                         value -> simulation.setSoftening(value)),
                 checkBox("Lancer un photon (masse nulle, vitesse = c)", false, simulation::setSpawnAsPhoton)));
         root.add(Box.createVerticalStrut(14));
 
-        LinearSlider trailLengthSlider = new LinearSlider("Longueur des trainees", 20, 500,
+        LinearSlider trailLengthSlider = new LinearSlider("Longueur des trainees", 0, 500,
                 simulation.getTrailLength(), simulation::setTrailLength);
         JCheckBox mergeCheckBox = checkBox("Fusionner les corps en collision",
                 simulation.isCollisionMergingEnabled(), simulation::setCollisionMergingEnabled);
@@ -86,6 +89,7 @@ public final class ControlPanel extends JScrollPane {
         root.add(sectionCard("Affichage",
                 checkBox("Afficher les trainees", true, simulation::setShowTrails),
                 trailLengthSlider,
+                checkBox("Afficher les noms de tous les astres", false, simulation::setShowAllNames),
                 mergeCheckBox));
         root.add(Box.createVerticalStrut(14));
 
@@ -101,7 +105,8 @@ public final class ControlPanel extends JScrollPane {
 
         root.add(sectionCard("Action",
                 button("Pause / Lecture", simulation::togglePause),
-                button("Effacer tout", simulation::clearBodies)));
+                button("Effacer tout", simulation::clearBodies),
+                button("Reinitialiser le systeme", simulation::resetSystem)));
         root.add(Box.createVerticalStrut(14));
 
         root.add(sectionCard("Systemes predefinis",
@@ -294,18 +299,25 @@ public final class ControlPanel extends JScrollPane {
         };
     }
 
-    /** A LogSlider that operates on real kilograms while feeding the (unchanged) internal mass unit to the simulation. */
+    /**
+     * A LogSlider that operates on real kilograms while feeding the (unchanged)
+     * internal mass unit to the simulation.
+     */
     private static LogSlider massSlider(String label, double minInternal, double maxInternal, double initialInternal,
-                                         DoubleConsumer onInternalChange) {
+            DoubleConsumer onInternalChange) {
         return new LogSlider(label,
-                Units.internalMassToKg(minInternal), Units.internalMassToKg(maxInternal), Units.internalMassToKg(initialInternal),
+                Units.internalMassToKg(minInternal), Units.internalMassToKg(maxInternal),
+                Units.internalMassToKg(initialInternal),
                 kg -> onInternalChange.accept(Units.kgToInternalMass(kg)),
                 Units::formatKg);
     }
 
-    /** A LogSlider that operates on km/h while feeding km/s (the simulation's native velocity unit) to the callback. */
+    /**
+     * A LogSlider that operates on km/h while feeding km/s (the simulation's native
+     * velocity unit) to the callback.
+     */
     private static LogSlider speedSlider(String label, double minKmh, double maxKmh, double initialKmh,
-                                          DoubleConsumer onKmPerSecondChange) {
+            DoubleConsumer onKmPerSecondChange) {
         return new LogSlider(label, minKmh, maxKmh, initialKmh,
                 kmh -> onKmPerSecondChange.accept(Units.kmPerHourToKmPerSecond(kmh)),
                 kmh -> String.format(Locale.US, "%,.0f km/h", kmh));
@@ -426,7 +438,10 @@ public final class ControlPanel extends JScrollPane {
         }
     }
 
-    /** A flat, rounded, hover-highlighted button — plain Swing has no such look built in. */
+    /**
+     * A flat, rounded, hover-highlighted button — plain Swing has no such look
+     * built in.
+     */
     private static final class FlatButton extends JButton {
         private boolean hover = false;
 
@@ -466,7 +481,10 @@ public final class ControlPanel extends JScrollPane {
         }
     }
 
-    /** A flat slider UI matching the dark theme: rounded filled track and a plain circular thumb. */
+    /**
+     * A flat slider UI matching the dark theme: rounded filled track and a plain
+     * circular thumb.
+     */
     private static final class FlatSliderUI extends BasicSliderUI {
         FlatSliderUI(JSlider slider) {
             super(slider);
@@ -557,8 +575,10 @@ public final class ControlPanel extends JScrollPane {
     }
 
     /**
-     * A slider with a logarithmic mapping, for parameters that span a wide range (mass, G,
-     * speed) — paired with a text field so exact values (e.g. a real astronomical constant)
+     * A slider with a logarithmic mapping, for parameters that span a wide range
+     * (mass, G,
+     * speed) — paired with a text field so exact values (e.g. a real astronomical
+     * constant)
      * can be typed in directly instead of hunting for them by dragging.
      */
     private static final class LogSlider extends JPanel {
@@ -578,7 +598,7 @@ public final class ControlPanel extends JScrollPane {
         }
 
         LogSlider(String label, double min, double max, double initial, DoubleConsumer onChange,
-                  DoubleFunction<String> tooltip) {
+                DoubleFunction<String> tooltip) {
             this.min = min;
             this.max = max;
             this.onChange = onChange;
@@ -661,7 +681,10 @@ public final class ControlPanel extends JScrollPane {
         }
     }
 
-    /** A slider with a plain linear mapping and an editable field, for naturally bounded integer parameters. */
+    /**
+     * A slider with a plain linear mapping and an editable field, for naturally
+     * bounded integer parameters.
+     */
     private static final class LinearSlider extends JPanel {
         private final JSlider slider;
         private final JTextField field = editableField();
