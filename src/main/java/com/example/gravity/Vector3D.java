@@ -27,7 +27,7 @@ public final class Vector3D {
     }
 
     public double magnitude() {
-        return Math.sqrt(x * x + y * y + z * z);
+        return Math.sqrt(magnitudeSquared());
     }
 
     public double magnitudeSquared() {
