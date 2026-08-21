@@ -10,9 +10,11 @@ import java.awt.BorderLayout;
 public class App {
     public static void main(String[] args) {
         // Must be set before any AWT/Swing class touches the toolkit, so this has to
-        // come before invokeLater — switches Java2D from its default software rasterizer
+        // come before invokeLater — switches Java2D from its default software
+        // rasterizer
         // to the OpenGL pipeline (GPU-accelerated) where the driver supports it. If it
-        // doesn't (e.g. no GPU passthrough in a remote desktop session), Java2D silently
+        // doesn't (e.g. no GPU passthrough in a remote desktop session), Java2D
+        // silently
         // falls back to software rendering rather than failing.
         System.setProperty("sun.java2d.opengl", "true");
 

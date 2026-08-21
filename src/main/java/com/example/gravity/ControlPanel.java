@@ -65,27 +65,31 @@ public final class ControlPanel extends JScrollPane {
         root.add(Box.createVerticalStrut(20));
 
         LogSlider gSlider = new LogSlider("Constante G", 1e-10, 100000, simulation.getG(), simulation::setG);
-        LogSlider speedSlider = new LogSlider("Vitesse simulation", 1e-6, 5_000_000,
+        LogSlider speedSlider = new LogSlider("Vitesse simulation", 1e-6, 2_000_000_000,
                 simulation.getSimulationSpeed(), simulation::setSimulationSpeed);
+        LogSlider rotationSpeedSlider = new LogSlider("Vitesse de rotation (astres)", 0.001, 10_000,
+                simulation.getRotationSpeedMultiplier(), simulation::setRotationSpeedMultiplier);
 
         root.add(sectionCard("Parametres",
                 gSlider,
                 massSlider("Masse (nouveau)", 1, 1.0e21, 2000, simulation::setSpawnMass),
                 new LogSlider("Taille (nouveau, km)", 0.1, 2_000_000, 2.0, simulation::setSpawnRadius),
                 speedSlider,
+                rotationSpeedSlider,
                 new LinearSlider("Adoucissement gravitationnel", 0, 40, (int) simulation.getSoftening(),
                         value -> simulation.setSoftening(value)),
                 checkBox("Lancer un photon (masse nulle, vitesse = c)", false, simulation::setSpawnAsPhoton)));
         root.add(Box.createVerticalStrut(14));
 
-        LinearSlider trailLengthSlider = new LinearSlider("Longueur des trainees", 20, 500,
+        LinearSlider trailLengthSlider = new LinearSlider("Longueur des trainees", 0, 500,
                 simulation.getTrailLength(), simulation::setTrailLength);
         JCheckBox mergeCheckBox = checkBox("Fusionner les corps en collision",
                 simulation.isCollisionMergingEnabled(), simulation::setCollisionMergingEnabled);
 
         root.add(sectionCard("Affichage",
-                checkBox("Afficher les trainees", true, simulation::setShowTrails),
+                checkBox("Afficher la trainee des nouveaux corps", false, simulation::setShowTrails),
                 trailLengthSlider,
+                checkBox("Afficher les noms de tous les astres", false, simulation::setShowAllNames),
                 mergeCheckBox));
         root.add(Box.createVerticalStrut(14));
 
@@ -99,9 +103,47 @@ public final class ControlPanel extends JScrollPane {
         root.add(sectionCard("Corps selectionne", selectionCardBody(simulation)));
         root.add(Box.createVerticalStrut(14));
 
+        root.add(sectionCard("Inserer un astre predefini",
+                button("Soleil", () -> simulation.armPresetSpawn(PresetBodyKind.SOLEIL)),
+                button("Terre", () -> simulation.armPresetSpawn(PresetBodyKind.TERRE)),
+                button("Lune", () -> simulation.armPresetSpawn(PresetBodyKind.LUNE)),
+                button("ISS", () -> simulation.armPresetSpawn(PresetBodyKind.ISS)),
+                button("Satellite", () -> simulation.armPresetSpawn(PresetBodyKind.SATELLITE)),
+                button("Planete", () -> simulation.armPresetSpawn(PresetBodyKind.PLANETE)),
+                button("Asteroide", () -> simulation.armPresetSpawn(PresetBodyKind.ASTEROIDE)),
+                helpText("Puis clic = pose immobile, glisser = pose avec vitesse.")));
+        root.add(Box.createVerticalStrut(14));
+
+        JLabel blackHoleDensityLabel = valueLabel();
+        blackHoleDensityLabel.setForeground(Palette.TEXT_MUTED);
+        blackHoleDensityLabel.setText(formatDensity(simulation.getBlackHoleDensityKgPerM3()));
+        LogSlider blackHoleMassSlider = new LogSlider("Masse trou noir (kg)", 1e28, 1e42,
+                simulation.getBlackHoleMassKg(),
+                kg -> {
+                    simulation.setBlackHoleMassKg(kg);
+                    blackHoleDensityLabel.setText(formatDensity(simulation.getBlackHoleDensityKgPerM3()));
+                },
+                Units::formatKg);
+        LogSlider blackHoleRadiusSlider = new LogSlider("Rayon trou noir (km)", 0.001, 1_000_000,
+                simulation.getBlackHoleRadiusKm(),
+                km -> {
+                    simulation.setBlackHoleRadiusKm(km);
+                    blackHoleDensityLabel.setText(formatDensity(simulation.getBlackHoleDensityKgPerM3()));
+                });
+
+        root.add(sectionCard("Trou noir (parametrable)",
+                blackHoleMassSlider,
+                blackHoleRadiusSlider,
+                blackHoleDensityLabel,
+                button("Inserer un trou noir", simulation::armBlackHoleSpawn),
+                helpText("Puis clic = pose immobile, glisser = pose avec vitesse.")));
+        root.add(Box.createVerticalStrut(14));
+
         root.add(sectionCard("Action",
                 button("Pause / Lecture", simulation::togglePause),
-                button("Effacer tout", simulation::clearBodies)));
+                button("Effacer tout", simulation::clearBodies),
+                button("Reinitialiser le systeme", simulation::resetSystem),
+                button("Remettre le temps a 0", simulation::resetTime)));
         root.add(Box.createVerticalStrut(14));
 
         root.add(sectionCard("Systemes predefinis",
@@ -140,8 +182,8 @@ public final class ControlPanel extends JScrollPane {
         JPanel card = new JPanel(new CardLayout());
         card.setOpaque(false);
         card.setAlignmentX(Component.LEFT_ALIGNMENT);
-        card.setMaximumSize(new Dimension(CONTENT_WIDTH, 320));
-        card.setPreferredSize(new Dimension(CONTENT_WIDTH, 320));
+        card.setMaximumSize(new Dimension(CONTENT_WIDTH, 410));
+        card.setPreferredSize(new Dimension(CONTENT_WIDTH, 410));
 
         JLabel none = new JLabel(
                 "<html>Clique sur un corps dans la simulation pour modifier son nom, sa masse, sa taille et sa vitesse.</html>");
@@ -179,6 +221,7 @@ public final class ControlPanel extends JScrollPane {
         LogSlider speedSlider = speedSlider("Vitesse", 1, 50_000_000, 100000, simulation::setSelectedBodySpeed);
         LogSlider massSlider = massSlider("Masse", 1, 1.0e21, 1000, simulation::setSelectedBodyMass);
         LogSlider sizeSlider = new LogSlider("Taille (km)", 0.1, 2_000_000, 2.0, simulation::setSelectedBodySize);
+        JCheckBox trailCheckBox = checkBox("Afficher la trainee de ce corps", false, simulation::setSelectedBodyShowTrail);
 
         JPanel selected = new JPanel();
         selected.setOpaque(false);
@@ -189,6 +232,9 @@ public final class ControlPanel extends JScrollPane {
         selected.add(speedSlider);
         selected.add(massSlider);
         selected.add(sizeSlider);
+        selected.add(trailCheckBox);
+        selected.add(Box.createVerticalStrut(8));
+        selected.add(button("Definir direction et vitesse (glisser)", simulation::armVelocityAssignment));
 
         card.add(none, "none");
         card.add(selected, "selected");
@@ -202,6 +248,7 @@ public final class ControlPanel extends JScrollPane {
                 speedSlider.setValue(Units.kmPerSecondToKmPerHour(body.speed()));
                 massSlider.setValue(Units.internalMassToKg(body.mass));
                 sizeSlider.setValue(body.radius);
+                trailCheckBox.setSelected(body.showTrail);
                 layout.show(card, "selected");
             }
         });
@@ -223,6 +270,19 @@ public final class ControlPanel extends JScrollPane {
         label.setForeground(Palette.TEXT);
         label.setFont(label.getFont().deriveFont(Font.BOLD, 17f));
         label.setAlignmentX(Component.LEFT_ALIGNMENT);
+        return label;
+    }
+
+    private static String formatDensity(double kgPerM3) {
+        return String.format(Locale.US, "Densite : %.3e kg/m³", kgPerM3);
+    }
+
+    private static JLabel helpText(String text) {
+        JLabel label = new JLabel("<html>" + text + "</html>");
+        label.setForeground(Palette.TEXT_MUTED);
+        label.setFont(label.getFont().deriveFont(11f));
+        label.setAlignmentX(Component.LEFT_ALIGNMENT);
+        label.setMaximumSize(new Dimension(CONTENT_WIDTH, Short.MAX_VALUE));
         return label;
     }
 
@@ -294,18 +354,25 @@ public final class ControlPanel extends JScrollPane {
         };
     }
 
-    /** A LogSlider that operates on real kilograms while feeding the (unchanged) internal mass unit to the simulation. */
+    /**
+     * A LogSlider that operates on real kilograms while feeding the (unchanged)
+     * internal mass unit to the simulation.
+     */
     private static LogSlider massSlider(String label, double minInternal, double maxInternal, double initialInternal,
-                                         DoubleConsumer onInternalChange) {
+            DoubleConsumer onInternalChange) {
         return new LogSlider(label,
-                Units.internalMassToKg(minInternal), Units.internalMassToKg(maxInternal), Units.internalMassToKg(initialInternal),
+                Units.internalMassToKg(minInternal), Units.internalMassToKg(maxInternal),
+                Units.internalMassToKg(initialInternal),
                 kg -> onInternalChange.accept(Units.kgToInternalMass(kg)),
                 Units::formatKg);
     }
 
-    /** A LogSlider that operates on km/h while feeding km/s (the simulation's native velocity unit) to the callback. */
+    /**
+     * A LogSlider that operates on km/h while feeding km/s (the simulation's native
+     * velocity unit) to the callback.
+     */
     private static LogSlider speedSlider(String label, double minKmh, double maxKmh, double initialKmh,
-                                          DoubleConsumer onKmPerSecondChange) {
+            DoubleConsumer onKmPerSecondChange) {
         return new LogSlider(label, minKmh, maxKmh, initialKmh,
                 kmh -> onKmPerSecondChange.accept(Units.kmPerHourToKmPerSecond(kmh)),
                 kmh -> String.format(Locale.US, "%,.0f km/h", kmh));
@@ -426,7 +493,10 @@ public final class ControlPanel extends JScrollPane {
         }
     }
 
-    /** A flat, rounded, hover-highlighted button — plain Swing has no such look built in. */
+    /**
+     * A flat, rounded, hover-highlighted button — plain Swing has no such look
+     * built in.
+     */
     private static final class FlatButton extends JButton {
         private boolean hover = false;
 
@@ -466,7 +536,10 @@ public final class ControlPanel extends JScrollPane {
         }
     }
 
-    /** A flat slider UI matching the dark theme: rounded filled track and a plain circular thumb. */
+    /**
+     * A flat slider UI matching the dark theme: rounded filled track and a plain
+     * circular thumb.
+     */
     private static final class FlatSliderUI extends BasicSliderUI {
         FlatSliderUI(JSlider slider) {
             super(slider);
@@ -557,8 +630,10 @@ public final class ControlPanel extends JScrollPane {
     }
 
     /**
-     * A slider with a logarithmic mapping, for parameters that span a wide range (mass, G,
-     * speed) — paired with a text field so exact values (e.g. a real astronomical constant)
+     * A slider with a logarithmic mapping, for parameters that span a wide range
+     * (mass, G,
+     * speed) — paired with a text field so exact values (e.g. a real astronomical
+     * constant)
      * can be typed in directly instead of hunting for them by dragging.
      */
     private static final class LogSlider extends JPanel {
@@ -578,7 +653,7 @@ public final class ControlPanel extends JScrollPane {
         }
 
         LogSlider(String label, double min, double max, double initial, DoubleConsumer onChange,
-                  DoubleFunction<String> tooltip) {
+                DoubleFunction<String> tooltip) {
             this.min = min;
             this.max = max;
             this.onChange = onChange;
@@ -661,7 +736,10 @@ public final class ControlPanel extends JScrollPane {
         }
     }
 
-    /** A slider with a plain linear mapping and an editable field, for naturally bounded integer parameters. */
+    /**
+     * A slider with a plain linear mapping and an editable field, for naturally
+     * bounded integer parameters.
+     */
     private static final class LinearSlider extends JPanel {
         private final JSlider slider;
         private final JTextField field = editableField();

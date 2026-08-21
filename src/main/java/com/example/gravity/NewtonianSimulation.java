@@ -11,8 +11,11 @@ import java.util.List;
 public final class NewtonianSimulation {
 
     private double g;
-    private double softening = 3.0;
-    private boolean collisionMergingEnabled = false;
+    private double softening = 0;
+    private boolean collisionMergingEnabled = true;
+    // Purely visual multiplier on axial spin rate — independent of the orbital time
+    // acceleration (simulationSpeed), since rotation never feeds back into gravity.
+    private double rotationSpeedMultiplier = 1.0;
     private final List<Body> bodies;
     private double elapsedTime;
 
@@ -50,6 +53,14 @@ public final class NewtonianSimulation {
         this.collisionMergingEnabled = enabled;
     }
 
+    public double getRotationSpeedMultiplier() {
+        return rotationSpeedMultiplier;
+    }
+
+    public void setRotationSpeedMultiplier(double multiplier) {
+        this.rotationSpeedMultiplier = multiplier;
+    }
+
     public void addBody(Body body) {
         bodies.add(body);
         recomputeAccelerations();
@@ -74,6 +85,11 @@ public final class NewtonianSimulation {
         return elapsedTime;
     }
 
+    /** Zeroes the simulated clock without touching bodies, G, or any other state. */
+    public void resetElapsedTime() {
+        elapsedTime = 0;
+    }
+
     public void step(double dt) {
         if (handleCollisions()) {
             // A merge changed a survivor's mass/position without touching its stored
@@ -83,7 +99,7 @@ public final class NewtonianSimulation {
             recomputeAccelerations();
         }
 
-        Vector2D[] previousAcceleration = new Vector2D[bodies.size()];
+        Vector3D[] previousAcceleration = new Vector3D[bodies.size()];
         for (int i = 0; i < bodies.size(); i++) {
             Body b = bodies.get(i);
             previousAcceleration[i] = b.acceleration;
@@ -97,7 +113,10 @@ public final class NewtonianSimulation {
         for (int i = 0; i < bodies.size(); i++) {
             Body b = bodies.get(i);
             b.velocity = b.velocity.add(previousAcceleration[i].add(b.acceleration).scale(0.5 * dt));
-            b.recordTrailPoint();
+            if (b.rotationPeriodSeconds != 0) {
+                double angularSpeed = 2 * Math.PI / b.rotationPeriodSeconds;
+                b.rotationAngle = (b.rotationAngle + angularSpeed * dt * rotationSpeedMultiplier) % (2 * Math.PI);
+            }
         }
 
         elapsedTime += dt;
@@ -105,20 +124,20 @@ public final class NewtonianSimulation {
 
     private void recomputeAccelerations() {
         for (Body b : bodies) {
-            b.acceleration = Vector2D.ZERO;
+            b.acceleration = Vector3D.ZERO;
         }
         for (int i = 0; i < bodies.size(); i++) {
             for (int j = i + 1; j < bodies.size(); j++) {
                 Body a = bodies.get(i);
                 Body b = bodies.get(j);
 
-                Vector2D delta = b.position.subtract(a.position);
+                Vector3D delta = b.position.subtract(a.position);
                 // Plummer softening: F = G m1 m2 r / (r^2 + eps^2)^1.5, the standard
                 // way N-body codes avoid a diverging force at very close encounters
                 // while leaving distant orbits (r >> eps) essentially unchanged.
                 double softenedSquared = delta.magnitudeSquared() + softening * softening + 1e-6;
                 double softenedDistance = Math.sqrt(softenedSquared);
-                Vector2D direction = delta.scale(1.0 / softenedDistance);
+                Vector3D direction = delta.scale(1.0 / softenedDistance);
 
                 // Acceleration a = G*otherMass/r^2 doesn't involve the accelerated body's
                 // own mass at all (it would cancel out of F=ma), so computing it this way
@@ -151,13 +170,16 @@ public final class NewtonianSimulation {
         return anyMerged;
     }
 
-    /** Merges b into a: conserves total mass, momentum and volume (assuming equal density). */
+    /**
+     * Merges b into a: conserves total mass, momentum and volume (assuming equal
+     * density).
+     */
     private static void merge(Body a, Body b) {
         double totalMass = a.mass + b.mass;
         double mergedRadius = Math.cbrt(Math.pow(a.radius, 3) + Math.pow(b.radius, 3));
 
         if (totalMass > 0) {
-            Vector2D momentum = a.velocity.scale(a.mass).add(b.velocity.scale(b.mass));
+            Vector3D momentum = a.velocity.scale(a.mass).add(b.velocity.scale(b.mass));
             a.position = a.position.scale(a.mass / totalMass).add(b.position.scale(b.mass / totalMass));
             a.velocity = momentum.scale(1.0 / totalMass);
         }
@@ -193,17 +215,17 @@ public final class NewtonianSimulation {
         return totalKineticEnergy() + totalPotentialEnergy();
     }
 
-    public Vector2D totalMomentum() {
-        Vector2D sum = Vector2D.ZERO;
+    public Vector3D totalMomentum() {
+        Vector3D sum = Vector3D.ZERO;
         for (Body b : bodies) {
             sum = sum.add(b.velocity.scale(b.mass));
         }
         return sum;
     }
 
-    public Vector2D centerOfMass() {
+    public Vector3D centerOfMass() {
         double totalMass = 0;
-        Vector2D weighted = Vector2D.ZERO;
+        Vector3D weighted = Vector3D.ZERO;
         for (Body b : bodies) {
             weighted = weighted.add(b.position.scale(b.mass));
             totalMass += b.mass;
