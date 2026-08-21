@@ -142,7 +142,8 @@ public final class ControlPanel extends JScrollPane {
         root.add(sectionCard("Action",
                 button("Pause / Lecture", simulation::togglePause),
                 button("Effacer tout", simulation::clearBodies),
-                button("Reinitialiser le systeme", simulation::resetSystem)));
+                button("Reinitialiser le systeme", simulation::resetSystem),
+                button("Remettre le temps a 0", simulation::resetTime)));
         root.add(Box.createVerticalStrut(14));
 
         root.add(sectionCard("Systemes predefinis",

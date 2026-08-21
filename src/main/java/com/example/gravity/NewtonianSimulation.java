@@ -85,6 +85,11 @@ public final class NewtonianSimulation {
         return elapsedTime;
     }
 
+    /** Zeroes the simulated clock without touching bodies, G, or any other state. */
+    public void resetElapsedTime() {
+        elapsedTime = 0;
+    }
+
     public void step(double dt) {
         if (handleCollisions()) {
             // A merge changed a survivor's mass/position without touching its stored

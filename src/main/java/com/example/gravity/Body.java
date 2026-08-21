@@ -24,6 +24,8 @@ public final class Body {
     public long surfaceSeed;
     /** Per-body trail visibility, set manually via the selected-body panel. Off by default. */
     public boolean showTrail = false;
+    /** Per-body name-label visibility, independent of the global "show all names" toggle. Off by default. */
+    public boolean showName = false;
 
     private final Deque<Vector3D> trail = new ArrayDeque<>();
 

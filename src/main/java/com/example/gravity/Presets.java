@@ -183,9 +183,11 @@ final class Presets {
             planet.rotationPeriodSeconds = p.rotationPeriodHours() * 3600.0;
             planet.rotationAngle = randomInitialPhase();
             planet.surfaceSeed = randomSeed();
-            // Trails are shown by default for planets and moons only (not the Sun or the
-            // asteroid belt), so the orbital motion reads clearly without cluttering the view.
+            // Trails and name labels are shown by default for planets and moons only (not
+            // the Sun or the asteroid belt), so the orbital motion reads clearly without
+            // cluttering the view.
             planet.showTrail = true;
+            planet.showName = true;
             bodies.add(planet);
             systemMomentum = systemMomentum.add(planetVelocity.scale(planetMassInternal));
 
@@ -216,6 +218,7 @@ final class Presets {
                 moon.rotationAngle = moonAngle + Math.PI;
                 moon.surfaceSeed = randomSeed();
                 moon.showTrail = true;
+                moon.showName = true;
                 bodies.add(moon);
                 systemMomentum = systemMomentum.add(moonVelocity.scale(moonMassInternal));
             }
@@ -228,6 +231,7 @@ final class Presets {
         sun.rotationPeriodSeconds = 609.12 * 3600.0; // ~25.4 days at the equator
         sun.rotationAngle = randomInitialPhase();
         sun.surfaceSeed = randomSeed();
+        sun.showName = true;
         bodies.add(0, sun);
 
         return bodies;
@@ -332,8 +336,8 @@ final class Presets {
      */
     static List<Body> cloudBodies(double g) {
         ThreadLocalRandom random = ThreadLocalRandom.current();
-        int count = 1000;
-        double sphereRadius = 100.0;
+        int count = 500;
+        double sphereRadius = 500.0;
         double circularFraction = 0.7;
 
         List<CloudParticle> particles = new ArrayList<>();

@@ -535,6 +535,17 @@ public final class SimulationPanel extends JPanel {
         repaint();
     }
 
+    /**
+     * Zeroes both the simulated ("t = ...") and real-elapsed clocks without touching
+     * bodies, camera, speed, or any other state — usable at any moment, unlike
+     * {@link #resetSystem()} which reloads the whole preset from scratch.
+     */
+    public void resetTime() {
+        simulation.resetElapsedTime();
+        realElapsedSeconds = 0;
+        repaint();
+    }
+
     public void setOnSelectionChanged(Consumer<Body> listener) {
         this.onSelectionChanged = listener;
     }
@@ -599,7 +610,7 @@ public final class SimulationPanel extends JPanel {
         simulation.setCollisionMergingEnabled(false);
         pixelsPerUnit = PRESET_PIXELS_PER_KM;
         simulationSpeed = 1.0;
-        trailLength = 300;
+        trailLength = 10;
         afterPresetLoaded();
     }
 
@@ -615,7 +626,7 @@ public final class SimulationPanel extends JPanel {
         simulation.setCollisionMergingEnabled(false);
         pixelsPerUnit = PRESET_PIXELS_PER_KM;
         simulationSpeed = 1.0;
-        trailLength = 300;
+        trailLength = 10;
         afterPresetLoaded();
     }
 
@@ -636,7 +647,7 @@ public final class SimulationPanel extends JPanel {
         simulation.setCollisionMergingEnabled(false);
         pixelsPerUnit = 6e-8;
         simulationSpeed = 1_000_000.0;
-        trailLength = 300;
+        trailLength = 10;
         afterPresetLoaded();
     }
 
@@ -666,7 +677,7 @@ public final class SimulationPanel extends JPanel {
         simulation.setCollisionMergingEnabled(false);
         pixelsPerUnit = 0.02;
         simulationSpeed = 0.015;
-        trailLength = 300;
+        trailLength = 10;
         afterPresetLoaded();
     }
 
@@ -695,7 +706,7 @@ public final class SimulationPanel extends JPanel {
         simulation.setCollisionMergingEnabled(true);
         pixelsPerUnit = 6.0;
         simulationSpeed = 1.0;
-        trailLength = 80;
+        trailLength = 10;
         afterPresetLoaded();
     }
 
@@ -1014,7 +1025,7 @@ public final class SimulationPanel extends JPanel {
             g2.draw(new Ellipse2D.Double(center.x - ring, center.y - ring, ring * 2, ring * 2));
         }
 
-        if (showAllNames || body == selectedBody || body == secondarySelectedBody) {
+        if (showAllNames || body.showName || body == selectedBody || body == secondarySelectedBody) {
             g2.setColor(Palette.TEXT);
             g2.drawString(body.name, center.x + radius + 6, center.y);
         }
@@ -1240,8 +1251,12 @@ public final class SimulationPanel extends JPanel {
 
     private static String formatElapsedTime(double totalSeconds) {
         java.time.LocalDateTime dateTime = ELAPSED_TIME_EPOCH.plusSeconds((long) totalSeconds);
+        // getMonthValue()/getDayOfMonth() are calendar-style 1-indexed (month 1-12, day
+        // 1-31), so at zero elapsed time they'd read "month 1, day 1" instead of "0
+        // elapsed" — subtracted here to make this a genuine zero-based elapsed-duration
+        // readout instead of a calendar date.
         return String.format(Locale.US, "%da %02dm %02dj %02d:%02d:%02d",
-                dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth(),
+                dateTime.getYear(), dateTime.getMonthValue() - 1, dateTime.getDayOfMonth() - 1,
                 dateTime.getHour(), dateTime.getMinute(), dateTime.getSecond());
     }
 
